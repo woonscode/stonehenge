@@ -1,0 +1,9 @@
+pandas
+sqlalchemy
+pymysql
+python-dotenv
+pyyaml
+openpyxl
+requests
+boto3
+urllib3

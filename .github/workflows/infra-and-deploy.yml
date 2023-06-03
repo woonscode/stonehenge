@@ -1,0 +1,79 @@
+name: Infrastructure & Deployment
+run-name: "${{ github.workflow }} run #${{ github.run_number }} triggered by: ${{ github.triggering_actor }}"
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  Build-Lambda:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: API_Scraping_Module
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3.5.0
+      - name: Zip up Geoapify-API-Scraper Lambda function
+        run: zip geoapify_api_scraper geoapify_api_scraper.py
+      - name: Zip up Geoapify-Lambda-Invoker Lambda function
+        run: zip geoapify_lambda_invoker geoapify_lambda_invoker.py
+      - name: Zip up GMaps-API-Scraper Lambda function
+        run: zip gmaps_api_scraper gmaps_api_scraper.py
+      - name: Zip up GMaps-Lambda-Queue-Publisher Lambda function
+        run: zip gmaps_lambda_queue_publisher gmaps_lambda_queue_publisher.py
+      - name: Zip up POI-Data-Merger Lambda function
+        run: zip poi_data_merger poi_data_merger.py
+      - name: Upload Data Collection Lambda builds
+        uses: actions/upload-artifact@v3.1.2
+        with:
+          name: data-collection-lambda-builds
+          path: ./API_Scraping_Module
+      - name: Change directory to Data Blending Module
+        run: cd ../Data_Blending_Module
+      - name: Zip up Data-Blender Lambda function
+        run: zip data_blender data_blender.py
+        working-directory: ./Data_Blending_Module
+      - name: Zip up Data-Blender-Queue-Publisher Lambda function
+        run: zip data_blender_queue_publisher data_blender_queue_publisher.py
+        working-directory: ./Data_Blending_Module
+      - name: Zip up Blended-Data-Merger Lambda function
+        run: zip blended_data_merger blended_data_merger.py
+        working-directory: ./Data_Blending_Module
+      - name: Upload Data Blending Lambda builds
+        uses: actions/upload-artifact@v3.1.2
+        with:
+          name: data-blending-lambda-builds
+          path: ./Data_Blending_Module
+
+  Infrastructure-Update:
+    runs-on: ubuntu-latest
+    needs: [Build-Lambda]
+    container: hashicorp/terraform:latest
+    defaults:
+      run:
+        working-directory: terraform
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.access_key }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.secret_key }}
+      TF_VAR_GEOAPIFY_API_KEY: ${{ secrets.geoapify_api_key }}
+      TF_VAR_GOOGLE_API_KEY: ${{ secrets.google_api_key }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3.3.0
+      - name: Download Data Collection Lambda builds
+        uses: actions/download-artifact@v3.0.2
+        with:
+          name: data-collection-lambda-builds
+          path: ./API_Scraping_Module
+      - name: Download Data Blending Lambda builds
+        uses: actions/download-artifact@v3.0.2
+        with:
+          name: data-blending-lambda-builds
+          path: ./Data_Blending_Module
+      - name: Initialise terraform
+        run: terraform init
+      - name: Update infrastructure
+        run: terraform apply --auto-approve
